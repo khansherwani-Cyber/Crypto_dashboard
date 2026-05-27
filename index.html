@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CRYPTO SENTINEL — Whale & Sentiment Tracker</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg:        #030712;
+    --panel:     #0a0f1e;
+    --border:    #1a2744;
+    --border-glow: #2563eb44;
+    --accent:    #3b82f6;
+    --accent2:   #06b6d4;
+    --green:     #10b981;
+    --red:       #ef4444;
+    --gold:      #f59e0b;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-hud:  'Rajdhani', sans-serif;
+    --font-title:'Orbitron', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%; background: var(--bg);
+    color: var(--text); font-family: var(--font-hud);
+    overflow: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+  }
+
+  /* Ambient grid bg */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(37,99,235,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(37,99,235,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  #app { position: relative; z-index: 1; height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── TOP NAV ── */
+  #topbar {
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #0a1628 0%, var(--panel) 100%);
+    padding: 10px 20px;
+    display: flex; align-items: center; gap: 20px;
+    flex-shrink: 0;
+    box-shadow: 0 1px 30px rgba(37,99,235,0.12);
+  }
+
+  .logo {
+    font-family: var(--font-title);
+    font-size: 1rem; font-weight: 900;
+    letter-spacing: 0.15em;
+    background: linear-gradient(135deg, var(--accent2) 0%, var(--accent) 60%, #8b5cf6 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    white-space: nowrap;
+  }
+
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono); font-size: 0.65rem;
+    color: var(--green); letter-spacing: 0.1em;
+  }
+  .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* ── KPI CARDS ── */
+  .kpi-strip { display: flex; gap: 12px; flex: 1; justify-content: center; }
+
+  .kpi-card {
+    background: linear-gradient(135deg, #0d1b35 0%, #0a0f1e 100%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 16px;
+    min-width: 160px;
+    position: relative; overflow: hidden;
+    transition: border-color 0.4s ease, box-shadow 0.4s ease;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.5;
+  }
+  .kpi-card.flash-green { border-color: var(--green); box-shadow: 0 0 20px rgba(16,185,129,0.3); }
+  .kpi-card.flash-red   { border-color: var(--red);   box-shadow: 0 0 20px rgba(239,68,68,0.3);  }
+
+  .kpi-label { font-size: 0.6rem; letter-spacing: 0.18em; color: var(--muted); text-transform: uppercase; }
+  .kpi-price {
+    font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700;
+    color: var(--text); line-height: 1.2;
+    transition: color 0.3s;
+  }
+  .kpi-change {
+    font-size: 0.72rem; font-weight: 600;
+    transition: color 0.3s;
+  }
+  .up   { color: var(--green); }
+  .down { color: var(--red);   }
+
+  /* ── FEAR & GREED DIAL ── */
+  #fg-container {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; min-width: 110px;
+  }
+  #fg-label { font-size: 0.55rem; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; }
+  #fg-canvas { width: 90px; height: 50px; }
+  #fg-value {
+    font-family: var(--font-mono); font-size: 0.7rem;
+    transition: color 0.5s;
+  }
+  #fg-text { font-size: 0.6rem; color: var(--muted); }
+
+  /* Server time */
+  #server-time {
+    font-family: var(--font-mono); font-size: 0.6rem;
+    color: var(--muted); white-space: nowrap;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  #main {
+    flex: 1; display: grid;
+    grid-template-columns: 380px 1fr 380px;
+    gap: 0; overflow: hidden;
+  }
+
+  .panel {
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
+
+  .panel-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+    background: linear-gradient(180deg, #0d1b35 0%, var(--panel) 100%);
+  }
+  .panel-title {
+    font-family: var(--font-title); font-size: 0.65rem;
+    letter-spacing: 0.18em; color: var(--accent2);
+    text-transform: uppercase;
+  }
+  .panel-sub {
+    font-size: 0.6rem; color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  /* ── WHALE FEED ── */
+  #whale-feed {
+    flex: 1; overflow-y: auto; padding: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  #whale-feed::-webkit-scrollbar { width: 3px; }
+  #whale-feed::-webkit-scrollbar-track { background: transparent; }
+  #whale-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .whale-card {
+    background: linear-gradient(135deg, #0d1a2e 0%, #08101e 100%);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 10px 12px;
+    animation: slide-in-left 0.45s cubic-bezier(0.22,1,0.36,1) forwards;
+    position: relative; overflow: hidden;
+  }
+  .whale-card.massive { border-left-color: var(--gold); }
+  .whale-card.huge    { border-left-color: #8b5cf6; }
+  .whale-card.large   { border-left-color: var(--accent); }
+
+  .whale-card::after {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(59,130,246,0.4), transparent);
+  }
+
+  @keyframes slide-in-left {
+    from { opacity: 0; transform: translateX(-24px) scale(0.97); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+  }
+
+  .whale-value {
+    font-family: var(--font-title); font-size: 0.95rem; font-weight: 700;
+    color: var(--gold);
+  }
+  .whale-coin {
+    font-family: var(--font-mono); font-size: 0.75rem;
+    color: var(--accent2);
+  }
+  .whale-addr {
+    font-family: var(--font-mono); font-size: 0.58rem;
+    color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .whale-arrow { color: var(--accent); font-size: 0.8rem; margin: 0 4px; }
+  .exchange-tag {
+    display: inline-block;
+    background: rgba(59,130,246,0.15);
+    border: 1px solid rgba(59,130,246,0.3);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 0.55rem; letter-spacing: 0.08em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .wallet-tag {
+    display: inline-block;
+    background: rgba(100,116,139,0.15);
+    border: 1px solid rgba(100,116,139,0.3);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 0.55rem; letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .whale-ts { font-size: 0.55rem; color: var(--muted); font-family: var(--font-mono); }
+  .tx-hash { font-family: var(--font-mono); font-size: 0.55rem; color: var(--muted); letter-spacing: 0.04em; }
+
+  /* ── CENTER: CHART PANEL ── */
+  #center-panel {
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  #chart-area {
+    flex: 1; padding: 16px; min-height: 0;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+
+  .chart-wrap {
+    flex: 1; position: relative; min-height: 0;
+    background: linear-gradient(180deg, #080e1e 0%, #050a16 100%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  /* Stats row under chart */
+  #stats-row {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; flex-shrink: 0;
+  }
+
+  .stat-box {
+    background: #080e1e; border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 14px;
+    text-align: center;
+  }
+  .stat-box-label { font-size: 0.58rem; letter-spacing: 0.14em; color: var(--muted); text-transform: uppercase; }
+  .stat-box-val { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text); font-weight: 600; }
+
+  /* Ticker row */
+  #ticker-bar {
+    padding: 6px 16px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: #050a14;
+    overflow: hidden; flex-shrink: 0; position: relative;
+    height: 30px;
+  }
+  #ticker-track {
+    display: flex; gap: 40px; align-items: center;
+    white-space: nowrap;
+    animation: ticker-scroll 40s linear infinite;
+    position: absolute; top: 50%; transform: translateY(-50%);
+  }
+  @keyframes ticker-scroll {
+    from { transform: translateX(100vw) translateY(-50%); }
+    to   { transform: translateX(-100%) translateY(-50%); }
+  }
+  .ticker-item { font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); }
+  .ticker-item span { margin: 0 4px; }
+
+  /* ── SENTIMENT PANEL ── */
+  #sentiment-feed {
+    flex: 1; overflow-y: auto; padding: 8px;
+    display: flex; flex-direction: column; gap: 5px;
+  }
+  #sentiment-feed::-webkit-scrollbar { width: 3px; }
+  #sentiment-feed::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .sentiment-card {
+    background: linear-gradient(135deg, #0a1020 0%, #070d1a 100%);
+    border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px;
+    animation: slide-in-right 0.45s cubic-bezier(0.22,1,0.36,1) forwards;
+    position: relative;
+  }
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(24px) scale(0.97); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+  }
+
+  .sentiment-card.pos { border-left: 3px solid var(--green); }
+  .sentiment-card.neg { border-left: 3px solid var(--red); }
+  .sentiment-card.neu { border-left: 3px solid var(--muted); }
+
+  .sent-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .sent-author { font-size: 0.65rem; font-weight: 700; color: var(--accent2); }
+  .sent-source {
+    font-size: 0.55rem; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px;
+    font-family: var(--font-mono);
+  }
+  .sent-text { font-size: 0.7rem; color: var(--text); line-height: 1.4; }
+  .sent-score-bar {
+    margin-top: 5px; height: 3px; border-radius: 2px;
+    background: var(--border); overflow: hidden;
+  }
+  .sent-score-fill {
+    height: 100%; border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
+  /* ── SENTIMENT METER (large) ── */
+  #sentiment-meter {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: #080e1e;
+    display: flex; align-items: center; gap: 14px;
+    flex-shrink: 0;
+  }
+  #meter-track {
+    flex: 1; height: 8px; border-radius: 4px;
+    background: linear-gradient(90deg, #ef4444, #f59e0b 35%, #94a3b8 50%, #10b981 75%, #3b82f6);
+    position: relative;
+  }
+  #meter-needle {
+    position: absolute; top: 50%; width: 12px; height: 12px;
+    border-radius: 50%; border: 2px solid white;
+    background: white; transform: translate(-50%, -50%);
+    transition: left 0.8s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: 0 0 10px rgba(255,255,255,0.6);
+  }
+  #meter-label {
+    font-family: var(--font-mono); font-size: 0.72rem;
+    white-space: nowrap; min-width: 90px; text-align: right;
+  }
+  #meter-score { font-family: var(--font-title); font-size: 0.85rem; color: var(--accent2); }
+
+  /* Whale count badge */
+  .count-badge {
+    background: rgba(59,130,246,0.15);
+    border: 1px solid rgba(59,130,246,0.3);
+    border-radius: 10px; padding: 1px 8px;
+    font-family: var(--font-mono); font-size: 0.6rem;
+    color: var(--accent);
+  }
+
+  /* Connection status */
+  #conn-status {
+    font-family: var(--font-mono); font-size: 0.58rem;
+    padding: 2px 8px; border-radius: 3px;
+    border: 1px solid;
+  }
+  #conn-status.connected    { color: var(--green); border-color: var(--green); background: rgba(16,185,129,0.1); }
+  #conn-status.disconnected { color: var(--red);   border-color: var(--red);   background: rgba(239,68,68,0.1); }
+  #conn-status.reconnecting { color: var(--gold);  border-color: var(--gold);  background: rgba(245,158,11,0.1); animation: blink 1s ease infinite; }
+  @keyframes blink { 50% { opacity: 0.4; } }
+
+  /* Number pop animation */
+  @keyframes num-pop {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.15); }
+    100% { transform: scale(1); }
+  }
+  .pop { animation: num-pop 0.3s ease; }
+
+  /* Chart tooltip */
+  .chartjs-tooltip { font-family: var(--font-mono) !important; font-size: 0.65rem !important; }
+
+  /* Bottom status bar */
+  #statusbar {
+    height: 22px; flex-shrink: 0;
+    background: #030712;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 16px; gap: 20px;
+  }
+  .status-item { font-family: var(--font-mono); font-size: 0.55rem; color: var(--muted); }
+  .status-item span { color: var(--accent2); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── TOP BAR ── -->
+  <div id="topbar">
+    <div class="logo">⬡ CRYPTO SENTINEL</div>
+    <div class="live-badge"><div class="live-dot"></div>LIVE FEED</div>
+
+    <div class="kpi-strip">
+      <div class="kpi-card" id="kpi-btc">
+        <div class="kpi-label">₿ BITCOIN</div>
+        <div class="kpi-price" id="btc-price">—</div>
+        <div class="kpi-change" id="btc-change">—</div>
+      </div>
+      <div class="kpi-card" id="kpi-eth">
+        <div class="kpi-label">Ξ ETHEREUM</div>
+        <div class="kpi-price" id="eth-price">—</div>
+        <div class="kpi-change" id="eth-change">—</div>
+      </div>
+      <div class="kpi-card" id="kpi-sol">
+        <div class="kpi-label">◎ SOLANA</div>
+        <div class="kpi-price" id="sol-price">—</div>
+        <div class="kpi-change" id="sol-change">—</div>
+      </div>
+    </div>
+
+    <!-- Fear & Greed Dial -->
+    <div id="fg-container">
+      <div id="fg-label">Fear & Greed</div>
+      <canvas id="fg-canvas" width="90" height="50"></canvas>
+      <div id="fg-value" style="color:var(--muted)">—</div>
+      <div id="fg-text">—</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+      <div id="conn-status" class="disconnected">OFFLINE</div>
+      <div id="server-time">--:--:--</div>
+    </div>
+  </div>
+
+  <!-- ── MAIN LAYOUT ── -->
+  <div id="main">
+
+    <!-- LEFT: WHALE FEED -->
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">🐳 Whale Tracker</div>
+          <div class="panel-sub">Transfers &gt; $500,000 USD</div>
+        </div>
+        <div class="count-badge" id="whale-count">0 alerts</div>
+      </div>
+      <div id="whale-feed"></div>
+    </div>
+
+    <!-- CENTER: CHART + STATS -->
+    <div id="center-panel">
+      <!-- Ticker bar -->
+      <div id="ticker-bar">
+        <div id="ticker-track">
+          <span class="ticker-item">BTC <span id="tk-btc">—</span></span>
+          <span class="ticker-item">ETH <span id="tk-eth">—</span></span>
+          <span class="ticker-item">SOL <span id="tk-sol">—</span></span>
+          <span class="ticker-item">SENTIMENT <span id="tk-sent">—</span></span>
+          <span class="ticker-item">WHALE ALERTS <span id="tk-whales">0</span></span>
+          <span class="ticker-item">LIVE STREAMS <span style="color:var(--green)">ACTIVE</span></span>
+          <span class="ticker-item">DATA <span style="color:var(--accent2)">BINANCE WS + COINGECKO + RSS</span></span>
+        </div>
+      </div>
+
+      <div id="chart-area">
+        <div class="panel-header" style="border-radius:8px 8px 0 0;border:1px solid var(--border);border-bottom:none;">
+          <div>
+            <div class="panel-title">📈 Price vs Sentiment — Live Chart</div>
+            <div class="panel-sub">Last 120 data points · 30s interval</div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:center;">
+            <div style="display:flex;align-items:center;gap:5px;font-size:0.6rem;color:var(--muted);">
+              <div style="width:12px;height:2px;background:#f59e0b;border-radius:1px;"></div>BTC
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;font-size:0.6rem;color:var(--muted);">
+              <div style="width:12px;height:2px;background:#8b5cf6;border-radius:1px;"></div>ETH ×10
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;font-size:0.6rem;color:var(--muted);">
+              <div style="width:12px;height:2px;background:#06b6d4;border-radius:1px;"></div>SOL ×100
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;font-size:0.6rem;color:var(--muted);">
+              <div style="width:12px;height:2px;background:#10b981;border-radius:1px;"></div>Sentiment
+            </div>
+          </div>
+        </div>
+        <div class="chart-wrap" style="border-radius:0 0 8px 8px;border-top:none;">
+          <canvas id="priceChart"></canvas>
+        </div>
+        <div id="stats-row">
+          <div class="stat-box">
+            <div class="stat-box-label">Total Whales Tracked</div>
+            <div class="stat-box-val" id="stat-whale-total">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-box-label">Total USD Volume</div>
+            <div class="stat-box-val" id="stat-usd-vol">$0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-box-label">Avg Sentiment Score</div>
+            <div class="stat-box-val" id="stat-avg-sent">0.000</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: SENTIMENT -->
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">💬 Social Sentiment</div>
+          <div class="panel-sub">X · Reddit · CoinTelegraph RSS</div>
+        </div>
+        <div class="count-badge" id="sent-count">0 posts</div>
+      </div>
+      <!-- Meter bar -->
+      <div id="sentiment-meter">
+        <div style="font-size:0.58rem;color:var(--muted);white-space:nowrap;">FEAR</div>
+        <div id="meter-track">
+          <div id="meter-needle" style="left:50%"></div>
+        </div>
+        <div style="font-size:0.58rem;color:var(--muted);white-space:nowrap;">GREED</div>
+        <div id="meter-label">
+          <div id="meter-score">0.000</div>
+          <div id="meter-text" style="font-size:0.55rem;color:var(--muted)">Neutral</div>
+        </div>
+      </div>
+      <div id="sentiment-feed"></div>
+    </div>
+
+  </div>
+
+  <!-- ── BOTTOM STATUS BAR ── -->
+  <div id="statusbar">
+    <div class="status-item">BINANCE WS <span id="sb-binance">CONNECTING</span></div>
+    <div class="status-item">COINGECKO <span id="sb-coingecko">POLLING</span></div>
+    <div class="status-item">RSS <span id="sb-rss">ACTIVE</span></div>
+    <div class="status-item">SSE <span id="sb-sse">—</span></div>
+    <div class="status-item" style="margin-left:auto;">
+      CRYPTO SENTINEL v1.0 · Built with FastAPI + Binance WS + CoinGecko + VADER NLP
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════
+const state = {
+  prices: { bitcoin: 0, ethereum: 0, solana: 0 },
+  changes: { bitcoin: 0, ethereum: 0, solana: 0 },
+  whaleCount: 0,
+  whaleVolume: 0,
+  sentimentScore: 0,
+  sentimentHistory: [],
+  sentPostCount: 0,
+  priceHistory: [],
+  connected: false,
+  eventSource: null,
+  reconnectDelay: 2000,
+};
+
+// ══════════════════════════════════════════════════════
+//  CHART.JS SETUP
+// ══════════════════════════════════════════════════════
+const chartCtx = document.getElementById('priceChart').getContext('2d');
+const MAX_CHART_POINTS = 60;
+
+const chartData = {
+  labels: [],
+  datasets: [
+    {
+      label: 'BTC', yAxisID: 'yPrice',
+      data: [], borderColor: '#f59e0b',
+      backgroundColor: 'rgba(245,158,11,0.05)',
+      borderWidth: 1.5, tension: 0.4, pointRadius: 0, fill: true,
+    },
+    {
+      label: 'ETH ×10', yAxisID: 'yPrice',
+      data: [], borderColor: '#8b5cf6',
+      backgroundColor: 'rgba(139,92,246,0.04)',
+      borderWidth: 1.5, tension: 0.4, pointRadius: 0,
+    },
+    {
+      label: 'SOL ×100', yAxisID: 'yPrice',
+      data: [], borderColor: '#06b6d4',
+      backgroundColor: 'rgba(6,182,212,0.04)',
+      borderWidth: 1.5, tension: 0.4, pointRadius: 0,
+    },
+    {
+      label: 'Sentiment', yAxisID: 'ySentiment',
+      data: [], borderColor: '#10b981',
+      backgroundColor: 'rgba(16,185,129,0.08)',
+      borderWidth: 2, tension: 0.4, pointRadius: 0, fill: true,
+      borderDash: [4, 2],
+    },
+  ],
+};
+
+const chart = new Chart(chartCtx, {
+  type: 'line',
+  data: chartData,
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 200 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#0d1b35',
+        borderColor: '#1a2744',
+        borderWidth: 1,
+        titleColor: '#94a3b8',
+        bodyColor: '#e2e8f0',
+        titleFont: { family: 'Share Tech Mono', size: 11 },
+        bodyFont:  { family: 'Share Tech Mono', size: 11 },
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y;
+            if (ctx.dataset.label === 'Sentiment') return ` Sentiment: ${v.toFixed(3)}`;
+            if (ctx.dataset.label === 'ETH ×10')  return ` ETH: $${(v/10).toLocaleString()}`;
+            if (ctx.dataset.label === 'SOL ×100') return ` SOL: $${(v/100).toLocaleString()}`;
+            return ` ${ctx.dataset.label}: $${v.toLocaleString()}`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#475569', font: { family: 'Share Tech Mono', size: 9 }, maxTicksLimit: 8 },
+        grid: { color: 'rgba(26,39,68,0.5)' },
+      },
+      yPrice: {
+        position: 'left', type: 'linear',
+        ticks: { color: '#475569', font: { family: 'Share Tech Mono', size: 9 },
+          callback: v => '$' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v.toFixed(0))
+        },
+        grid: { color: 'rgba(26,39,68,0.4)' },
+      },
+      ySentiment: {
+        position: 'right', type: 'linear',
+        min: -1, max: 1,
+        ticks: { color: '#10b981', font: { family: 'Share Tech Mono', size: 9 } },
+        grid: { drawOnChartArea: false },
+      },
+    },
+  },
+});
+
+function pushChartPoint(ts, btc, eth, sol, sentiment) {
+  const label = new Date(ts).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  chartData.labels.push(label);
+  chartData.datasets[0].data.push(btc || null);
+  chartData.datasets[1].data.push(eth ? eth * 10 : null);
+  chartData.datasets[2].data.push(sol ? sol * 100 : null);
+  chartData.datasets[3].data.push(sentiment);
+
+  if (chartData.labels.length > MAX_CHART_POINTS) {
+    chartData.labels.shift();
+    chartData.datasets.forEach(d => d.data.shift());
+  }
+  chart.update('none');
+}
+
+// ══════════════════════════════════════════════════════
+//  FEAR & GREED GAUGE
+// ══════════════════════════════════════════════════════
+const fgCanvas = document.getElementById('fg-canvas');
+const fgCtx = fgCanvas.getContext('2d');
+
+function drawGauge(score) {
+  // score: -1 to +1  →  angle: 180° to 0° (left to right)
+  const w = fgCanvas.width, h = fgCanvas.height;
+  fgCtx.clearRect(0, 0, w, h);
+
+  const cx = w / 2, cy = h - 4, r = h - 10;
+
+  // Background arc
+  const gradient = fgCtx.createLinearGradient(0, 0, w, 0);
+  gradient.addColorStop(0,    '#ef4444');
+  gradient.addColorStop(0.35, '#f59e0b');
+  gradient.addColorStop(0.5,  '#94a3b8');
+  gradient.addColorStop(0.75, '#10b981');
+  gradient.addColorStop(1,    '#3b82f6');
+
+  fgCtx.beginPath();
+  fgCtx.arc(cx, cy, r, Math.PI, 0);
+  fgCtx.strokeStyle = gradient;
+  fgCtx.lineWidth = 8;
+  fgCtx.lineCap = 'round';
+  fgCtx.stroke();
+
+  // Needle
+  const normalised = (score + 1) / 2;  // 0 to 1
+  const angle = Math.PI - normalised * Math.PI;
+  fgCtx.beginPath();
+  fgCtx.moveTo(cx, cy);
+  fgCtx.lineTo(cx + Math.cos(angle) * (r - 2), cy + Math.sin(angle) * (r - 2));
+  fgCtx.strokeStyle = '#ffffff';
+  fgCtx.lineWidth = 2;
+  fgCtx.stroke();
+
+  // Center dot
+  fgCtx.beginPath();
+  fgCtx.arc(cx, cy, 3, 0, 2 * Math.PI);
+  fgCtx.fillStyle = '#ffffff';
+  fgCtx.fill();
+}
+
+function getFGLabel(score) {
+  if (score < -0.6) return { text: 'Extreme Fear', color: '#ef4444' };
+  if (score < -0.2) return { text: 'Fear',         color: '#f97316' };
+  if (score < 0.2)  return { text: 'Neutral',      color: '#94a3b8' };
+  if (score < 0.6)  return { text: 'Greed',        color: '#10b981' };
+  return                    { text: 'Extreme Greed',color: '#3b82f6' };
+}
+
+function updateFG(score) {
+  drawGauge(score);
+  const { text, color } = getFGLabel(score);
+  const el = document.getElementById('fg-value');
+  el.textContent = score.toFixed(3);
+  el.style.color = color;
+  document.getElementById('fg-text').textContent = text;
+}
+
+// ══════════════════════════════════════════════════════
+//  CLOCK
+// ══════════════════════════════════════════════════════
+setInterval(() => {
+  document.getElementById('server-time').textContent = new Date().toLocaleTimeString();
+}, 1000);
+
+// ══════════════════════════════════════════════════════
+//  KPI UPDATE
+// ══════════════════════════════════════════════════════
+const COIN_MAP = {
+  bitcoin:  { price: 'btc-price', change: 'btc-change', kpi: 'kpi-btc', tk: 'tk-btc' },
+  ethereum: { price: 'eth-price', change: 'eth-change', kpi: 'kpi-eth', tk: 'tk-eth' },
+  solana:   { price: 'sol-price', change: 'sol-change', kpi: 'kpi-sol', tk: 'tk-sol' },
+};
+
+function updatePrice(coin, price, change) {
+  if (!price) return;
+  const old = state.prices[coin] || 0;
+  state.prices[coin] = price;
+  state.changes[coin] = change;
+
+  const m = COIN_MAP[coin];
+  if (!m) return;
+
+  const priceEl  = document.getElementById(m.price);
+  const changeEl = document.getElementById(m.change);
+  const kpiEl    = document.getElementById(m.kpi);
+  const tkEl     = document.getElementById(m.tk);
+
+  priceEl.textContent  = '$' + price.toLocaleString('en', { minimumFractionDigits: price < 10 ? 2 : 0 });
+  changeEl.textContent = (change >= 0 ? '▲ +' : '▼ ') + change.toFixed(2) + '%';
+  changeEl.className   = 'kpi-change ' + (change >= 0 ? 'up' : 'down');
+
+  if (tkEl) tkEl.textContent = '$' + price.toLocaleString();
+  if (tkEl) tkEl.className = change >= 0 ? 'up' : 'down';
+
+  // Flash card
+  if (old && price !== old) {
+    const cls = price > old ? 'flash-green' : 'flash-red';
+    kpiEl.classList.add(cls);
+    priceEl.classList.add('pop');
+    setTimeout(() => { kpiEl.classList.remove(cls); priceEl.classList.remove('pop'); }, 600);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  WHALE CARD RENDERER
+// ══════════════════════════════════════════════════════
+function formatUSD(n) {
+  if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  return '$' + n.toLocaleString();
+}
+function formatAmount(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+  return n.toLocaleString('en', { maximumFractionDigits: 4 });
+}
+function timeAgo(ts) {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  return Math.floor(diff/3600) + 'h ago';
+}
+function addrTag(addr, isExchange) {
+  const cls = isExchange ? 'exchange-tag' : 'wallet-tag';
+  const short = addr.length > 16 ? addr.slice(0, 10) + '…' + addr.slice(-5) : addr;
+  return `<span class="${cls}">${short}</span>`;
+}
+
+function renderWhaleCard(w) {
+  const feed = document.getElementById('whale-feed');
+  const usd  = w.usd_value;
+  let sizeClass = 'large';
+  if (usd >= 10_000_000) sizeClass = 'massive';
+  else if (usd >= 2_000_000) sizeClass = 'huge';
+
+  const card = document.createElement('div');
+  card.className = `whale-card ${sizeClass}`;
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+      <div>
+        <span class="whale-value">${formatUSD(usd)}</span>
+        <span class="whale-coin"> ${formatAmount(w.amount)} ${w.symbol}</span>
+      </div>
+      <div class="whale-ts">${timeAgo(w.ts)}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:5px;flex-wrap:wrap;">
+      ${addrTag(w.from_addr, w.from_is_exchange)}
+      <span class="whale-arrow">→</span>
+      ${addrTag(w.to_addr, w.to_is_exchange)}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:0.58rem;color:var(--muted);border:1px solid var(--border);border-radius:3px;padding:1px 5px;">${w.chain}</span>
+      <span class="tx-hash">${w.tx_hash ? w.tx_hash.slice(0, 20) + '…' : '—'}</span>
+    </div>
+  `;
+
+  feed.insertBefore(card, feed.firstChild);
+
+  // Keep max 30 cards in DOM
+  while (feed.children.length > 30) feed.removeChild(feed.lastChild);
+
+  // Update stats
+  state.whaleCount++;
+  state.whaleVolume += usd;
+  document.getElementById('whale-count').textContent = state.whaleCount + ' alerts';
+  document.getElementById('stat-whale-total').textContent = state.whaleCount.toLocaleString();
+  document.getElementById('stat-usd-vol').textContent = formatUSD(state.whaleVolume);
+  document.getElementById('tk-whales').textContent = state.whaleCount;
+}
+
+// ══════════════════════════════════════════════════════
+//  SENTIMENT CARD RENDERER
+// ══════════════════════════════════════════════════════
+function renderSentCard(post) {
+  const feed   = document.getElementById('sentiment-feed');
+  const score  = post.score || 0;
+  const cls    = score > 0.05 ? 'pos' : score < -0.05 ? 'neg' : 'neu';
+  const color  = score > 0.05 ? 'var(--green)' : score < -0.05 ? 'var(--red)' : 'var(--muted)';
+  const barPct = ((score + 1) / 2 * 100).toFixed(1);
+  const barCol = score > 0.05 ? 'var(--green)' : score < -0.05 ? 'var(--red)' : 'var(--muted)';
+
+  const card = document.createElement('div');
+  card.className = `sentiment-card ${cls}`;
+  card.innerHTML = `
+    <div class="sent-header">
+      <span class="sent-author">${post.author || 'Anonymous'}</span>
+      <span class="sent-source">${post.source || 'Unknown'}</span>
+    </div>
+    <div class="sent-text">${post.text.slice(0, 140)}</div>
+    <div class="sent-score-bar">
+      <div class="sent-score-fill" style="width:${barPct}%;background:${barCol};"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:3px;">
+      <span style="font-size:0.55rem;color:${color};">${score.toFixed(3)}</span>
+      <span style="font-size:0.55rem;color:var(--muted);">${timeAgo(post.ts)}</span>
+    </div>
+  `;
+
+  feed.insertBefore(card, feed.firstChild);
+  while (feed.children.length > 25) feed.removeChild(feed.lastChild);
+
+  state.sentPostCount++;
+  document.getElementById('sent-count').textContent = state.sentPostCount + ' posts';
+}
+
+// ══════════════════════════════════════════════════════
+//  SENTIMENT METER UPDATE
+// ══════════════════════════════════════════════════════
+function updateSentimentMeter(score) {
+  state.sentimentScore = score;
+  const pct = ((score + 1) / 2 * 100).toFixed(2);
+  document.getElementById('meter-needle').style.left = pct + '%';
+
+  const { text, color } = getFGLabel(score);
+  const scoreEl = document.getElementById('meter-score');
+  scoreEl.textContent = score.toFixed(3);
+  scoreEl.style.color = color;
+  document.getElementById('meter-text').textContent = text;
+  document.getElementById('stat-avg-sent').textContent = score.toFixed(3);
+  document.getElementById('stat-avg-sent').style.color = color;
+  document.getElementById('tk-sent').textContent = score.toFixed(3);
+
+  updateFG(score);
+}
+
+// ══════════════════════════════════════════════════════
+//  LOAD INITIAL STATE
+// ══════════════════════════════════════════════════════
+async function loadInitialState() {
+  try {
+    const resp = await fetch('/api/state');
+    const data = await resp.json();
+
+    // Prices
+    for (const [coin, info] of Object.entries(data.prices || {})) {
+      updatePrice(coin, info.usd, info.usd_24h_change);
+    }
+
+    // Whale history
+    const whales = (data.whale_history || []).sort((a, b) => a.ts - b.ts);
+    whales.forEach(w => renderWhaleCard(w));
+
+    // Sentiment posts
+    const posts = (data.sentiment_posts || []).sort((a, b) => a.ts - b.ts);
+    posts.forEach(p => renderSentCard(p));
+
+    // Sentiment score
+    if (data.sentiment_score !== undefined) updateSentimentMeter(data.sentiment_score);
+
+    // Price history for chart
+    const hist = (data.price_history || []).slice(-MAX_CHART_POINTS);
+    hist.forEach(h => {
+      pushChartPoint(h.ts, h.btc, h.eth, h.sol, h.sentiment || 0);
+    });
+
+    document.getElementById('sb-binance').textContent = 'CONNECTED';
+    document.getElementById('sb-coingecko').textContent = 'ACTIVE';
+  } catch (e) {
+    console.error('Failed to load initial state:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  SSE CONNECTION
+// ══════════════════════════════════════════════════════
+let reconnectTimer = null;
+let lastSnapshotTs = 0;
+
+function setStatus(status) {
+  const el = document.getElementById('conn-status');
+  el.className = `conn-status ${status}`;
+  el.textContent = status.toUpperCase();
+  document.getElementById('sb-sse').textContent = status.toUpperCase();
+}
+
+function connectSSE() {
+  if (state.eventSource) state.eventSource.close();
+  setStatus('reconnecting');
+
+  const es = new EventSource('/stream');
+  state.eventSource = es;
+
+  es.onopen = () => {
+    state.connected = true;
+    state.reconnectDelay = 2000;
+    setStatus('connected');
+    console.log('[SSE] Connected');
+  };
+
+  es.onmessage = (event) => {
+    let msg;
+    try { msg = JSON.parse(event.data); } catch { return; }
+
+    switch (msg.type) {
+      case 'connected':
+        console.log('[SSE] Server acknowledged connection');
+        break;
+
+      case 'price_tick':
+        updatePrice(msg.data.coin, msg.data.price, msg.data.change_24h);
+        break;
+
+      case 'price_snapshot': {
+        const d = msg.data;
+        pushChartPoint(d.ts, d.btc, d.eth, d.sol, d.sentiment || state.sentimentScore);
+        // Update ticker
+        if (d.btc) document.getElementById('tk-btc').textContent = '$' + d.btc.toLocaleString();
+        if (d.eth) document.getElementById('tk-eth').textContent = '$' + d.eth.toLocaleString();
+        if (d.sol) document.getElementById('tk-sol').textContent = '$' + d.sol.toLocaleString();
+        break;
+      }
+
+      case 'whale_alert':
+        renderWhaleCard(msg.data);
+        break;
+
+      case 'sentiment_post':
+        renderSentCard(msg.data);
+        break;
+
+      case 'sentiment_update':
+        updateSentimentMeter(msg.data.score);
+        break;
+
+      case 'heartbeat':
+        // Connection is alive
+        break;
+    }
+  };
+
+  es.onerror = () => {
+    state.connected = false;
+    setStatus('disconnected');
+    es.close();
+    console.warn(`[SSE] Disconnected. Reconnecting in ${state.reconnectDelay}ms...`);
+    reconnectTimer = setTimeout(() => {
+      state.reconnectDelay = Math.min(state.reconnectDelay * 1.5, 30000);
+      connectSSE();
+    }, state.reconnectDelay);
+  };
+}
+
+// ══════════════════════════════════════════════════════
+//  BOOT
+// ══════════════════════════════════════════════════════
+(async () => {
+  // Initial gauge render
+  drawGauge(0);
+
+  // Load cached state first (instant render)
+  await loadInitialState();
+
+  // Then connect live stream
+  connectSSE();
+
+  // Periodic time-ago refresh on whale/sentiment cards
+  setInterval(() => {
+    document.querySelectorAll('.whale-ts').forEach(el => {
+      const card = el.closest('.whale-card');
+      // We don't store ts on DOM — this is a cosmetic refresh
+      // For a full impl, attach data-ts attribute
+    });
+  }, 30000);
+})();
+</script>
+</body>
+</html>
